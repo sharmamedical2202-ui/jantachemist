@@ -447,6 +447,52 @@ export default function App() {
   const dayPPct  = daySum.hasP&&daySum.rev>0 ? +((daySum.profit/daySum.rev)*100).toFixed(1) : null;
   const clearBills = () => { if (!window.confirm(`Delete all ${bills.length} bills?`)) return; setBills([]); localStorage.removeItem(BILLS_KEY); showToast("🗑️ Cleared","err"); };
 
+  /* ── backup export ── */
+  const exportBackup = () => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      bills,
+      catalog,
+      customMeds,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = `janta-backup-${getTodayKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("✅ Backup downloaded!");
+  };
+
+  /* ── backup import ── */
+  const importBackup = e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.version || !data.bills) { showToast("❌ Invalid backup file","err"); return; }
+        if (!window.confirm(`This will MERGE backup data with your current data. Bills: ${data.bills.length}, Catalog: ${Object.keys(data.catalog||{}).length} medicines. Continue?`)) return;
+        // merge bills — avoid duplicates by id
+        setBills(prev => {
+          const existingIds = new Set(prev.map(b=>b.id));
+          const newBills = (data.bills||[]).filter(b=>!existingIds.has(b.id));
+          return [...prev, ...newBills].sort((a,b)=>b.id-a.id);
+        });
+        // merge catalog
+        setCatalog(prev => ({...(data.catalog||{}), ...prev}));
+        // merge custom meds
+        setCustomMeds(prev => [...new Set([...prev, ...(data.customMeds||[])])]);
+        showToast(`✅ Backup restored! ${data.bills?.length||0} bills merged`);
+      } catch { showToast("❌ Could not read backup file","err"); }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+  const backupFileRef = useRef(null);
+
   /* ── low stock list ── */
   const lowStockItems = Object.entries(catalog).filter(([name,c])=> c.stock!=null && c.stock<=(c.lowAt??LOW_STOCK_THRESHOLD));
 
@@ -773,7 +819,27 @@ export default function App() {
               ))}
             </div>
           }
-          {bills.length>0&&<button onClick={clearBills} style={{marginTop:"18px",width:"100%",padding:"11px",background:"rgba(127,29,29,0.2)",border:"1px solid rgba(220,38,38,0.35)",borderRadius:"10px",color:"#fca5a5",cursor:"pointer",fontSize:"13px",fontWeight:600}}>🗑️ Clear All Bills ({bills.length} total)</button>}
+          {/* Backup & Restore */}
+          <div style={{marginTop:"20px",background:"rgba(21,101,192,0.08)",border:"1px solid rgba(21,101,192,0.25)",borderRadius:"14px",padding:"16px"}}>
+            <div style={{fontWeight:700,color:R.blueL,marginBottom:"6px",fontSize:"14px"}}>🔒 Backup & Restore</div>
+            <div style={{fontSize:"12px",color:R.muted,marginBottom:"12px",lineHeight:"1.7"}}>
+              Your bills and catalog are saved <strong style={{color:"#fff"}}>only on this browser/device</strong>. Export a backup regularly so you never lose data when switching devices or browsers.
+            </div>
+            <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
+              <button onClick={exportBackup} style={{flex:1,padding:"11px",background:"linear-gradient(135deg,#1255a0,#1e88e5)",border:"none",borderRadius:"10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:"13px"}}>
+                ⬇️ Export Backup ({bills.length} bills)
+              </button>
+              <button onClick={()=>backupFileRef.current.click()} style={{flex:1,padding:"11px",background:"rgba(74,222,128,0.12)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:"10px",color:R.greenL,fontWeight:700,cursor:"pointer",fontSize:"13px"}}>
+                ⬆️ Restore from Backup
+              </button>
+              <input ref={backupFileRef} type="file" accept=".json" onChange={importBackup} style={{display:"none"}} />
+            </div>
+            <div style={{fontSize:"11px",color:"#2a4a60",marginTop:"10px"}}>
+              💡 Tip: Export backup every week. To move to a new device — export on old device, open the site on new device, click Restore.
+            </div>
+          </div>
+
+          {bills.length>0&&<button onClick={clearBills} style={{marginTop:"12px",width:"100%",padding:"11px",background:"rgba(127,29,29,0.2)",border:"1px solid rgba(220,38,38,0.35)",borderRadius:"10px",color:"#fca5a5",cursor:"pointer",fontSize:"13px",fontWeight:600}}>🗑️ Clear All Bills ({bills.length} total)</button>}
         </div>
       )}
 
@@ -904,7 +970,7 @@ export default function App() {
                 );
               })}
             </div>
-           }
+          }
         </div>
       )}
 
